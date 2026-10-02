@@ -1,0 +1,18 @@
+# CounterForge build and test runs
+build/
+stress_runs/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+
+# Executables and compiler outputs
+*.exe
+*.out
+*.o
+*.obj
+*.app
