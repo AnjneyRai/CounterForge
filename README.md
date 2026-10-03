@@ -4,80 +4,61 @@ CounterForge is an open-source stress-testing tool and agent skill designed to f
 
 CounterForge compares your solution against a trusted brute-force implementation using deterministic test case generation.
 
-## Quick Start
+## The problem
+You get "Wrong Answer on test 82" and the judge hides the test, or shows an input
+too big to trace by hand. Stress testing fixes this: compare your fast solution
+against a slow brute force on thousands of small random inputs until they disagree.
+But writing the brute force and generator for every problem is slow, so many people skip it.
 
-### Installation
+## What CounterForge does
+1. A local open-weight model (via Ollama) reads the problem and writes a brute force and a random test generator.
+2. [Trust check: the brute force is run on the sample tests and the model repairs it if it fails.]
+3. Plain code compiles everything, runs both programs on growing random inputs, and compares outputs.
+4. It stops at the first difference and shows the failing input and both answers.
 
-Install dependencies:
-```bash
+The comparison step uses no AI, so a reported mismatch is real.
+
+## Open-source AI used
+- Model: `qwen2.5-coder:7b`, an open-weight model run locally through Ollama (no API keys, no cloud).
+- Agent skill: the `counterforge/` folder follows the Agent Skills standard [and passes `skills-ref validate`].
+
+## Requirements
+Python 3.9+, g++, Ollama with a pulled coder model (`ollama pull qwen2.5-coder:7b`).
+
+## Install
+```
+git clone https://github.com/AnjneyRai/CounterForge.git
+cd CounterForge
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-### Usage
-
-CounterForge supports two operating modes:
-
-#### 1. Manual Mode (User-provided Brute Force & Generator)
-Provide your own trusted brute force and generator source files:
-```bash
+## Quick start
+Manual mode (your own brute force and generator, no AI):
+```
 python counterforge/scripts/stress.py --solution examples/max-subarray-bug/solution.cpp --brute examples/max-subarray-bug/brute.cpp --gen examples/max-subarray-bug/gen.cpp
 ```
-
-#### 2. AI Mode (Local LLM via Ollama)
-When you only have the problem statement, CounterForge asks a local model running in Ollama to write the brute force and generator for you:
-```bash
-python counterforge/scripts/stress.py --solution examples/max-subarray-bug/solution.cpp --problem examples/max-subarray-bug/problem.txt --model qwen2.5-coder:7b
+AI mode (the model writes them; Ollama must be running):
 ```
-*(You can also set the `COUNTERFORGE_MODEL` environment variable so you don't need to specify `--model` each time).*
-
----
-
-## CLI Options
-
-| Flag | Short | Description | Default |
-| :--- | :--- | :--- | :--- |
-| `--solution` | `-s` | Path to the candidate C++ solution source file (`.cpp`) **[Required]** | |
-| `--problem` | `-p` | Path to problem statement text file (`.txt`) to activate AI mode | `None` |
-| `--model` | `-m` | Local Ollama model name to use in AI mode | `$COUNTERFORGE_MODEL` |
-| `--brute` | `-b` | Path to trusted C++ brute-force reference (`.cpp`) for manual mode | `None` |
-| `--gen` | `-g` | Path to C++ test generator (`.cpp`) conforming to contract | `None` |
-| `--max-tests` | `-n` | Maximum number of test cases to generate and evaluate | `100` |
-| `--max-size` | | Maximum scale/size parameter passed to the generator | `20` |
-| `--seed` | | Starting random seed for reproducible runs | `1` |
-| `--time-limit` | `-t` | Execution time limit per test case in seconds | `1.5` |
-| `--mode` | | Value distribution mode: `small`, `large`, `all`, or `both` | `all` |
-| `--build-dir` | | Directory where compiled executables are stored | `build` |
-| `--output-dir` | | Folder where counterexample evidence is saved on failure | `stress_runs/<timestamp>/` |
-
----
-
-## Generator Contract
-
-Every test generator used by CounterForge adheres to the standard contract:
-```bash
-./gen <seed> <size> <mode>
+python counterforge/scripts/stress.py --solution examples/max-subarray-bug/solution.cpp --problem examples/max-subarray-bug/problem.txt --model qwen2.5-coder:7b --samples examples/max-subarray-bug/samples
 ```
-- `<seed>`: Integer seed for `std::mt19937` deterministic pseudo-random generation.
-- `<size>`: Problem scale / input size parameter (e.g. array length $N$, vertex count $V$).
-- `<mode>`:
-  - `"small"`: Small values (e.g. $-10$ to $10$) for quick manual inspection and simple corner cases.
-  - `"large"`: Boundary/limit values (e.g. up to $\pm 10^9$) to catch integer overflows.
-- **Output**: Exactly ONE valid test case printed to `stdout`. Deterministic for identical arguments.
+The example solution has a planted bug (it fails on all-negative arrays). CounterForge finds a one-element counterexample.
 
----
+![CounterForge setup](docs/demo-1.png)
+![CounterForge finds the counterexample](docs/demo-2.png)
 
-## Failure Outcomes & Evidence
+## Use it as an agent skill
+Copy the `counterforge/` folder into your agent's skills directory. See `counterforge/SKILL.md`.
 
-When a bug is found, CounterForge halts on the first failure, classifies the outcome:
-- `wrong_answer`: Solution output differs from the brute-force reference.
-- `runtime_error`: Solution crashed with a non-zero exit code (e.g. segfault, assertion error).
-- `timeout`: Solution exceeded the specified `--time-limit`.
-- `brute_failed`: Trusted brute-force crashed or timed out.
-- `no_difference_found`: All test cases passed successfully.
+## Limitations
+- The AI-written brute force can still be wrong even if it passes the samples. Always check the failing input by hand.
+- Only problems with one correct output are supported (no "print any valid answer", no interactive problems).
+- Small models sometimes fail to write a working helper, and the first AI run is slow.
+- Intended for practice and upsolving. Check each contest's rules on AI help.
 
-Evidence is saved into `stress_runs/<timestamp>/` containing:
-- `failing_input.in`
-- `expected.out`
-- `actual.out`
-- `report.json`
-- Copies of `solution.cpp`, `brute.cpp`, and `gen.cpp` for instant reproducibility.
+## Future work
+Hint levels, an input shrinker, a benchmark of trust-check success rates, and a browser extension that sends a problem straight to the tool.
+
+## License
+MIT
