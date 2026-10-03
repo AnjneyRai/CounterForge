@@ -45,9 +45,6 @@ python counterforge/scripts/stress.py --solution examples/max-subarray-bug/solut
 ```
 The example solution has a planted bug (it fails on all-negative arrays). CounterForge finds a one-element counterexample.
 
-![CounterForge setup](docs/demo-1.png)
-![CounterForge finds the counterexample](docs/demo-2.png)
-
 ## Use it as an agent skill
 Copy the `counterforge/` folder into your agent's skills directory. See `counterforge/SKILL.md`.
 
