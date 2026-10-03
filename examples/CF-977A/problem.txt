@@ -1,0 +1,6 @@
+Little girl Tanya is learning how to decrease a number by one, but she does it wrong with two rules:
+1. If the last digit of the number is non-zero, she decreases the number by 1.
+2. If the last digit of the number is zero, she divides the number by 10.
+You are given an integer number n and the number of times k she will decrease it. Output the final result.
+Input: Two integers n and k (2 <= n <= 10^9, 1 <= k <= 50).
+Output: Print the final number after k operations.

@@ -1,0 +1,6 @@
+You are given n integers a_1 ... a_n. Print their sum.
+
+Input: the first line contains n (1 <= n <= 100000). The second line contains
+n integers a_i (1 <= a_i <= 1000000000).
+
+Output: one integer, the sum of all a_i.
