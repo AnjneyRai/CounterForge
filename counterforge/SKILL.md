@@ -1,84 +1,78 @@
 ---
 name: counterforge
 description: >-
-  CounterForge finds counterexamples for failing C++ competitive programming
-  solutions via stress testing. Use this skill when you encounter Wrong Answer (WA),
-  need to find a failing test case, run stress testing against a brute-force
-  solution, or isolate a minimal counterexample.
+  Finds the smallest failing input for a C++ competitive programming solution
+  using stress testing. A local open-weight model (via Ollama) can write the
+  brute force and test generator from the problem statement, and plain code
+  compares the outputs. Use when a user's C++ solution gets Wrong Answer, fails
+  a hidden test, or they ask for a counterexample, a stress test, or a failing
+  test case. Not for interactive problems or problems that accept many valid answers.
+license: MIT
+compatibility: Requires Python 3.9+, g++, and the rich package. AI mode also needs Ollama running locally with a pulled coder model.
 ---
 
 # CounterForge
 
-CounterForge is an automated stress-testing tool and pair-programming skill that discovers the smallest input where a C++ competitive programming solution produces an incorrect answer, runtime crash, or timeout.
+CounterForge compiles the user's C++ solution, a brute force, and a random test
+generator, then runs them against each other until their outputs differ. It reports
+the smallest failing input it finds. The comparison is plain code, so a reported
+mismatch is real. AI is only used to write the brute force and the generator.
 
-## Generator Contract
+## When to use it
+- The user's C++ solution gets Wrong Answer, and they cannot see or understand the failing test.
+- The user asks for a counterexample, a stress test, or a smaller failing input.
 
-Every test generator used with CounterForge must adhere to the following contract:
+Do not use it for interactive problems, or for problems where many different outputs
+are valid (outputs are compared token by token, so a custom checker would be needed).
 
-```bash
-./gen <seed> <size> <mode>
+## Workflow
+1. Collect three things from the user, creating the files yourself from what they paste:
+   - the solution: a `.cpp` file
+   - the problem statement, saved as `problem.txt`
+   - the sample tests from the statement, saved in a folder as `1.in`/`1.out`, `2.in`/`2.out`, and so on
+2. Pick a mode. If the user already has a brute force and a generator, use manual mode.
+   Otherwise use AI mode.
+3. Run the command from the user's project folder. Paths below are relative to this skill folder.
+
+   AI mode (needs Ollama running; set COUNTERFORGE_MODEL or pass --model):
 ```
-
-- **Arguments**:
-  - `<seed>`: Integer seed for deterministic pseudo-random number generation.
-  - `<size>`: Problem scale / input size parameter (e.g., number of elements $N$, vertices $V$).
-  - `<mode>`: Value distribution mode:
-    - `"small"`: Tiny values (e.g., numbers between $-10$ and $10$, dense graphs) ideal for quick manual inspection and spotting corner cases.
-    - `"large"`: Extreme values (e.g., numbers up to $10^9$ or $-10^9$, sparse/chain graphs) designed to trigger 32-bit overflows and boundary limits.
-- **Behavior**:
-  - Prints exactly **ONE** valid test case to standard output (`stdout`).
-  - Given the same `seed`, `size`, and `mode`, it **must always** output the exact same test case.
-
-## Usage
-
-### 1. Manual Mode
-Run stress testing with user-provided brute-force and generator C++ files:
-
-```bash
-python counterforge/scripts/stress.py --solution path/to/solution.cpp --brute path/to/brute.cpp --gen path/to/gen.cpp
+   python scripts/stress.py --solution solution.cpp --problem problem.txt --samples samples --model qwen2.5-coder:7b
 ```
-
-### 2. AI Mode (Local LLM via Ollama)
-When only the problem description is available, let a local Ollama model synthesize the brute-force solution and generator automatically:
-
-```bash
-python counterforge/scripts/stress.py --solution path/to/solution.cpp --problem path/to/problem.txt --model qwen2.5-coder:7b
+   Manual mode:
 ```
-*(Or set `COUNTERFORGE_MODEL=qwen2.5-coder:7b` in your environment).*
+   python scripts/stress.py --solution solution.cpp --brute brute.cpp --gen gen.cpp
+```
+4. Read the result. Exit code 0 means no difference was found, 1 means a counterexample
+   was found, and 2 means setup failed (compile error, Ollama not running, or the trust check failed).
+5. Report the failing input, the solution's output, and the brute force's output.
+   Ask the user to trace the small input by hand. Point at the area of the bug, but do
+   not write the corrected solution unless the user explicitly asks for it.
+6. After the user edits their code, run the same command again to confirm it is fixed.
 
-## CLI Flags
+## Rules for the agent
+- In AI mode the brute force and generator are written by a model and are NOT proven
+  correct. Passing the sample tests lowers the risk but does not remove it. When the
+  two programs disagree, check by hand which one is right on the small failing input.
+- AI mode runs a trust check: the brute force is run on the samples, and the model is
+  asked to repair it (up to `--max-retries` times) if it fails. If it still fails,
+  stop and show the user the last attempt's file. Use `--force` only if the user asks.
+- Use mode `large` (or the default, which tries both) to catch overflow and slow code.
+- Do not invent test results. Only describe what the tool printed.
+- Results are saved under `stress_runs/<timestamp>/`. Tell the user where.
 
-| Flag | Short | Description | Default |
-| :--- | :--- | :--- | :--- |
-| `--solution` | `-s` | Path to candidate C++ solution (`.cpp`) **[Required]** | |
-| `--problem` | `-p` | Path to problem statement text file (`.txt`) for AI mode | `None` |
-| `--model` | `-m` | Local Ollama model name for AI mode | `$COUNTERFORGE_MODEL` |
-| `--brute` | `-b` | Path to trusted brute-force reference (`.cpp`) | `None` |
-| `--gen` | `-g` | Path to C++ test generator (`.cpp`) | `None` |
-| `--max-tests` | `-n` | Maximum test cases to evaluate | `100` |
-| `--max-size` | | Maximum scale/size parameter for generator | `20` |
-| `--seed` | | Starting random seed | `1` |
-| `--time-limit` | `-t` | Time limit per test case in seconds | `1.5` |
-| `--mode` | | Generator mode (`small`, `large`, `all`, `both`) | `all` |
-| `--build-dir` | | Directory for compiled binaries | `build` |
-| `--output-dir` | | Directory to save counterexample evidence | `stress_runs/<timestamp>/` |
+## Generator contract
+Every generator must be runnable as `./gen <seed> <size> <mode>` and print exactly ONE
+valid input to standard output. The same seed, size, and mode must always print the
+same input. `mode` is `small` (tiny values, for logic bugs) or `large` (values near
+the limits, for overflow and speed).
 
-## Architecture & Roadmap
-
-- **Phase 1 (Completed)**:
-  - Deterministic C++ stress engine (`engine.py`)
-  - Pretty terminal reporting with Rich (`report.py`)
-  - Command-line runner (`stress.py`)
-  - Example problem with deliberate bug (`examples/max-subarray-bug/`)
-  - Test suite with pytest (`tests/test_engine.py`)
-
-- **Phase 2 (Completed)**:
-  - Zero-dependency local Ollama LLM client (`llm.py`) using Python standard library `urllib`.
-  - AI helper synthesis and generator sanity check (`ai_helpers.py`).
-  - Starter templates (`assets/templates/`) and prompts (`assets/prompts/`).
-  - Timestamped reproducible evidence runs (`stress_runs/<timestamp>/`).
-  - Distinct stress loop outcomes (`wrong_answer`, `runtime_error`, `timeout`, `brute_failed`, `no_difference_found`).
-
-- **Phase 3 (Next)**:
-  - Trust check with sample verification and LLM retries.
-  - Delta-debugging / binary counterexample shrinker.
+## Main flags
+- `--solution FILE` the candidate C++ solution (required)
+- `--problem FILE` problem text, which turns on AI mode
+- `--samples DIR` sample tests used by the trust check
+- `--model NAME` local Ollama model (or set COUNTERFORGE_MODEL)
+- `--brute FILE` and `--gen FILE` your own helpers, which turn on manual mode
+- `--max-retries N` repair attempts for the AI helpers
+- `--force` continue even if the trust check fails
+- `--max-tests`, `--max-size`, `--time-limit`, `--mode` control the stress run
+Run `python scripts/stress.py --help` for the full list and defaults.
