@@ -1,0 +1,18 @@
+You wrote a C++17 test GENERATOR for the problem below, but it failed a check.
+
+PROBLEM:
+{problem}
+
+THE GENERATOR CONTRACT (follow it exactly):
+{contract}
+
+YOUR PREVIOUS CODE:
+{code}
+
+WHAT WENT WRONG:
+{failure}
+
+Fix the code. Rules:
+- Use std::mt19937 seeded with the seed, so the same arguments give the same output.
+- Respect every constraint stated in the problem. Print ONLY one valid input.
+- Reply with ONE ```cpp code block and nothing else.

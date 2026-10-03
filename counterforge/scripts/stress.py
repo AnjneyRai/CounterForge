@@ -9,6 +9,7 @@ This script is the main command-line entry point for CounterForge. It supports:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -23,6 +24,13 @@ from rich.panel import Panel
 from counterforge.scripts.ai_helpers import gen_sanity_check, write_helpers
 from counterforge.scripts.engine import compile_cpp, run_stress_test
 from counterforge.scripts.llm import check_ollama
+from counterforge.scripts.trust_check import (
+    _exe_for,
+    compile_source,
+    load_samples,
+    repair_generator,
+    trust_brute,
+)
 from counterforge.scripts.report import (
     console,
     print_banner,
@@ -125,7 +133,21 @@ def create_argument_parser() -> argparse.ArgumentParser:
         default=None,
         help="Directory where failing counterexample evidence will be saved (defaults to stress_runs/<timestamp>/).",
     )
-
+    parser.add_argument(
+        "--samples",
+        help="Folder with sample tests (1.in / 1.out, ...). Used by the trust check in AI mode.",
+    )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="How many times the AI may retry a failing brute force or generator (default 3).",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Continue even if the AI brute force never passes the samples (not recommended).",
+    )
     return parser
 
 
@@ -134,7 +156,7 @@ def main() -> int:
 
     Returns:
         Exit code: 0 if all tests passed, 1 if a counterexample was found,
-        or 2 if compilation / setup failed.
+        or 2 if compilation / setup / trust check failed.
     """
     print_banner()
 
@@ -142,6 +164,8 @@ def main() -> int:
     args = parser.parse_args()
 
     is_ai_mode = False
+    trust_log = None
+    quiet = lambda message: console.print(message, markup=False)  # prints text as-is
 
     # Determine whether AI Mode or Manual Mode is active
     if args.problem and not (args.brute or args.gen):
@@ -181,7 +205,6 @@ def main() -> int:
             console.print(f"Please run: [cyan]ollama pull {model_name}[/cyan]")
             return 2
 
-        # Prominently inform the user about AI mode and that helpers are NOT proven correct
         console.print(
             Panel(
                 f"[bold yellow]AI Assistance Active[/bold yellow]\n\n"
@@ -203,22 +226,64 @@ def main() -> int:
             return 2
 
         console.print("  [bold green][OK][/bold green] Brute-force and generator synthesized.")
+        brute_src = Path(brute_src)
+        gen_src = Path(gen_src)
 
-        # Sanity check the generated generator
-        console.print("Running generator sanity check...")
-        gen_exe = ai_dir / "gen"
-        ok, err = compile_cpp(gen_src, gen_exe)
+        # ---- TRUST CHECK (feature 2): verify the AI's brute force on the samples ----
+        brute_history = []
+        if args.samples:
+            try:
+                samples = load_samples(args.samples)
+            except ValueError as exc:
+                console.print(f"[bold red]Error:[/bold red] {exc}")
+                return 2
+
+            console.print("\n[bold]Trust check:[/bold] running the AI brute force on the sample tests")
+            trust = trust_brute(
+                problem_text,
+                samples,
+                model_name,
+                ai_dir,
+                max_retries=args.max_retries,
+                log=quiet,
+            )
+            brute_history = trust.history
+
+            if not trust.trusted:
+                console.print(
+                    "\n[bold red]CounterForge could not get a trustworthy brute force for this problem.[/bold red]"
+                )
+                console.print(f"Last attempt saved at: [cyan]{trust.code_path}[/cyan]")
+                if not args.force:
+                    console.print("Check that file by hand, or run again with [cyan]--force[/cyan] to continue anyway.")
+                    return 2
+                console.print("[bold yellow]--force given: continuing with an UNTRUSTED brute force.[/bold yellow]")
+        else:
+            console.print(
+                "\n[bold yellow]No --samples given: the AI-written brute force is unverified.[/bold yellow]"
+            )
+
+        # The generator check needs a compiled brute force
+        ok, err = compile_source(brute_src)
         if not ok:
-            console.print(f"[bold red]Failed to compile AI-written generator:[/bold red]\n{err}")
+            console.print(f"[bold red]Failed to compile the AI-written brute force:[/bold red]\n{err}")
             return 2
 
-        try:
-            gen_sanity_check(gen_exe)
-        except RuntimeError as exc:
-            console.print(f"[bold red]Generator Sanity Check Failed:[/bold red] {exc}")
+        console.print("\n[bold]Generator check:[/bold] smoke test, with AI repairs if needed")
+        gen_ok, gen_history = repair_generator(
+            problem_text,
+            model_name,
+            ai_dir,
+            _exe_for(brute_src),
+            max_retries=args.max_retries,
+            log=quiet,
+        )
+        if not gen_ok:
+            console.print("[bold red]CounterForge could not get a working generator for this problem.[/bold red]")
+            console.print(f"Last attempt saved at: [cyan]{gen_src}[/cyan]")
             return 2
 
-        console.print("  [bold green][PASS][/bold green] Generator passed determinism & non-empty check.")
+        trust_log = {"brute_force": brute_history, "generator": gen_history}
 
     elif args.brute and args.gen and not args.problem:
         # Manual Mode
@@ -234,7 +299,7 @@ def main() -> int:
     else:
         console.print(
             "[bold red]Error:[/bold red] Invalid combination of arguments.\n"
-            "  * AI Mode:     Provide [cyan]--problem[/cyan] (and optionally [cyan]--model[/cyan]), without --brute/--gen.\n"
+            "  * AI Mode:     Provide [cyan]--problem[/cyan] (and optionally [cyan]--model[/cyan], [cyan]--samples[/cyan]), without --brute/--gen.\n"
             "  * Manual Mode: Provide both [cyan]--brute[/cyan] and [cyan]--gen[/cyan], without --problem."
         )
         return 2
@@ -245,7 +310,10 @@ def main() -> int:
     console.print(f"  - Generator:   [cyan]{gen_src}[/cyan]")
     console.print(f"  - Max Tests:   {args.max_tests} | Max Size: {args.max_size} | Mode: {args.mode}")
     if is_ai_mode:
-        console.print("  [yellow](Note: Brute force & generator are AI-written and unverified)[/yellow]")
+        console.print(
+            "  [yellow](Note: the brute force and generator are AI-written. "
+            "Passing the samples does not prove the brute force is correct.)[/yellow]"
+        )
     console.print()
 
     outcome = run_stress_test(
@@ -280,6 +348,18 @@ def main() -> int:
             brute_src=brute_src,
             gen_src=gen_src,
         )
+        if is_ai_mode:
+            console.print(
+                "[yellow]Reminder: the brute force was written by an AI. Look at the failing input "
+                "and both outputs above, and check by hand which program is right.[/yellow]"
+            )
+            if trust_log is not None and evidence_dir:
+                try:
+                    (Path(evidence_dir) / "trust_log.json").write_text(
+                        json.dumps(trust_log, indent=2), encoding="utf-8"
+                    )
+                except OSError:
+                    pass
         print_summary(outcome, evidence_dir)
         return 1
 

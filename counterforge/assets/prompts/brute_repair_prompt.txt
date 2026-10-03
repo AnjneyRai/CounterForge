@@ -1,0 +1,15 @@
+You wrote a C++17 BRUTE FORCE solution for the problem below, but it failed a check.
+
+PROBLEM:
+{problem}
+
+YOUR PREVIOUS CODE:
+{code}
+
+WHAT WENT WRONG:
+{failure}
+
+Fix the code. Rules:
+- Keep it a simple, obviously-correct brute force. Speed does not matter.
+- Read from standard input and write to standard output only.
+- Reply with ONE ```cpp code block and nothing else.
