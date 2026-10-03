@@ -207,6 +207,7 @@ def test_end_to_end_stress_finds_max_subarray_bug(tmp_path: Path) -> None:
     assert outcome.success is False
     assert outcome.failing_case is not None
     assert outcome.failing_case.status == "wrong_answer"
+    assert outcome.outcome == "wrong_answer"
     # Kadane initialized to 0 gives 0 on all-negative inputs, whereas brute returns negative
     assert outcome.failing_case.actual_output.strip() == "0"
     assert int(outcome.failing_case.expected_output.strip()) < 0
@@ -235,3 +236,148 @@ def test_end_to_end_stress_passes_on_correct_solution(tmp_path: Path) -> None:
     assert outcome.success is True
     assert outcome.failing_case is None
     assert outcome.total_tested == 10
+    assert outcome.outcome == "no_difference_found"
+
+
+def test_stress_outcome_runtime_error(tmp_path: Path) -> None:
+    """Verifies that the stress loop returns the distinct outcome 'runtime_error' when solution crashes.
+
+    Why this matters: Crashing code (e.g. segfault, divide by zero) must be categorized distinctly from WA.
+    """
+    example_dir = project_root / "examples" / "max-subarray-bug"
+    brute_src = example_dir / "brute.cpp"
+    gen_src = example_dir / "gen.cpp"
+
+    crash_sol = tmp_path / "crash_sol.cpp"
+    crash_sol.write_text(
+        "#include <iostream>\n"
+        "#include <cstdlib>\n"
+        "int main() {\n"
+        "    int n;\n"
+        "    if (std::cin >> n) {\n"
+        "        return 42;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    outcome = run_stress_test(
+        solution_src=crash_sol,
+        brute_src=brute_src,
+        gen_src=gen_src,
+        max_tests=5,
+        max_size=5,
+        build_dir=tmp_path / "build",
+        mode="small",
+    )
+
+    assert outcome.success is False
+    assert outcome.outcome == "runtime_error"
+    assert outcome.failing_case is not None
+    assert outcome.failing_case.status == "runtime_error"
+
+
+def test_stress_outcome_timeout(tmp_path: Path) -> None:
+    """Verifies that the stress loop returns the distinct outcome 'timeout' when solution exceeds time limit.
+
+    Why this matters: TLE bugs must be isolated and flagged as 'timeout'.
+    """
+    example_dir = project_root / "examples" / "max-subarray-bug"
+    brute_src = example_dir / "brute.cpp"
+    gen_src = example_dir / "gen.cpp"
+
+    tle_sol = tmp_path / "tle_sol.cpp"
+    tle_sol.write_text(
+        "#include <iostream>\n"
+        "int main() {\n"
+        "    int n;\n"
+        "    if (std::cin >> n) {\n"
+        "        while (true) {}\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    outcome = run_stress_test(
+        solution_src=tle_sol,
+        brute_src=brute_src,
+        gen_src=gen_src,
+        max_tests=5,
+        max_size=5,
+        time_limit=0.5,
+        build_dir=tmp_path / "build",
+        mode="small",
+    )
+
+    assert outcome.success is False
+    assert outcome.outcome == "timeout"
+    assert outcome.failing_case is not None
+    assert outcome.failing_case.status == "timeout"
+
+
+def test_stress_outcome_brute_failed(tmp_path: Path) -> None:
+    """Verifies that the stress loop returns the distinct outcome 'brute_failed' when brute force fails.
+
+    Why this matters: If the reference brute force is broken, we must not blame the candidate solution.
+    """
+    example_dir = project_root / "examples" / "max-subarray-bug"
+    sol_src = example_dir / "solution.cpp"
+    gen_src = example_dir / "gen.cpp"
+
+    broken_brute = tmp_path / "broken_brute.cpp"
+    broken_brute.write_text(
+        "#include <iostream>\n"
+        "#include <cstdlib>\n"
+        "int main() {\n"
+        "    return 42;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    outcome = run_stress_test(
+        solution_src=sol_src,
+        brute_src=broken_brute,
+        gen_src=gen_src,
+        max_tests=5,
+        max_size=5,
+        build_dir=tmp_path / "build",
+        mode="small",
+    )
+
+    assert outcome.success is False
+    assert outcome.outcome == "brute_failed"
+    assert outcome.failing_case is not None
+    assert outcome.failing_case.status == "brute_failed"
+
+
+def test_stress_mode_both(tmp_path: Path) -> None:
+    """Verifies that --mode both runs and alternates between small and large modes.
+
+    Why this matters: Users need an easy way to alternate small and large inputs in a single run.
+    """
+    example_dir = project_root / "examples" / "max-subarray-bug"
+    sol_src = example_dir / "solution.cpp"
+    brute_src = example_dir / "brute.cpp"
+    gen_src = example_dir / "gen.cpp"
+
+    modes_seen = []
+
+    def record_progress(case):
+        modes_seen.append(case.mode)
+
+    outcome = run_stress_test(
+        solution_src=sol_src,
+        brute_src=brute_src,
+        gen_src=gen_src,
+        max_tests=20,
+        max_size=10,
+        build_dir=tmp_path / "build",
+        mode="both",
+        on_test_done=record_progress,
+        stop_on_first_bug=False,
+    )
+
+    assert "small" in modes_seen
+    assert "large" in modes_seen

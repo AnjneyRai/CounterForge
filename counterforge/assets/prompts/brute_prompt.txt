@@ -1,0 +1,14 @@
+You are an expert competitive programmer.
+Write a C++17 BRUTE FORCE solution for the following problem.
+
+PROBLEM STATEMENT:
+{problem}
+
+INSTRUCTIONS:
+1. Write a C++17 BRUTE FORCE solution that reads stdin and writes stdout.
+2. Choose the simplest, most obviously-correct approach. Ignore speed and time complexity; simple and correct beats fast!
+3. Provide NO explanation, commentary, or text outside the code.
+4. Reply with ONE ```cpp code block only.
+
+STARTER TEMPLATE:
+{template}

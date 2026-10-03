@@ -1,41 +1,121 @@
-"""CounterForge LLM Integration Module (Stub).
+"""CounterForge Ollama LLM Client.
 
-This module will provide local Large Language Model (LLM) capabilities
-for CounterForge in a future phase.
-
-Future features:
-- Automatically synthesize a brute-force C++ solution from a problem statement.
-- Automatically generate a C++ test generator following the Generator Contract.
-- Explain failing counterexamples and suggest targeted code patches.
-
-All future LLM integrations will run locally (e.g., via Ollama or llama.cpp)
-without requiring any cloud APIs or external API keys.
+This module provides simple, zero-dependency functions to communicate with a
+local Ollama instance. It uses only Python's standard library (urllib and json).
+No external packages or cloud API keys are used.
 """
 
+from __future__ import annotations
 
-def generate_brute_force_solution(problem_description: str) -> str:
-    """Generate a trusted brute-force C++ solution using a local LLM.
-
-    Args:
-        problem_description: Text of the competitive programming problem.
-
-    Returns:
-        A string containing valid C++ brute-force code.
-    """
-    # TODO (Phase 2): Integrate with a local LLM runner (such as Ollama)
-    # to prompt for a simple, sound brute-force C++ implementation.
-    raise NotImplementedError("CounterForge Phase 2 will implement local LLM brute-force synthesis.")
+import http.client
+import json
+import re
+import urllib.error
+import urllib.request
+from typing import List
 
 
-def generate_test_generator(problem_description: str) -> str:
-    """Generate a C++ test generator conforming to the Generator Contract.
+def check_ollama(host: str = "http://localhost:11434") -> List[str]:
+    """Checks if Ollama is running and returns the list of available local models.
 
     Args:
-        problem_description: Text of the competitive programming problem.
+        host: URL where Ollama is listening (default: http://localhost:11434).
 
     Returns:
-        A string containing valid C++ generator code accepting <seed> <size> <mode>.
+        A list of model name strings (e.g. ['qwen2.5-coder:7b']).
+
+    Raises:
+        RuntimeError: If Ollama is not running or unreachable.
     """
-    # TODO (Phase 2): Integrate with a local LLM runner to generate deterministic
-    # generator code adhering to the CounterForge Generator Contract.
-    raise NotImplementedError("CounterForge Phase 2 will implement local LLM generator synthesis.")
+    url = f"{host.rstrip('/')}/api/tags"
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+
+    try:
+        with urllib.request.urlopen(req, timeout=10.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            models = [
+                m["name"]
+                for m in data.get("models", [])
+                if isinstance(m, dict) and "name" in m
+            ]
+            return models
+    except (urllib.error.URLError, http.client.HTTPException, OSError) as exc:
+        raise RuntimeError(
+            f"Ollama is not running at {host}. Start Ollama, then try again."
+        ) from exc
+
+
+def generate(
+    prompt: str,
+    model: str,
+    host: str = "http://localhost:11434",
+    timeout: float = 300.0,
+) -> str:
+    """Sends a generation prompt to a local Ollama model and returns its response.
+
+    Args:
+        prompt: The prompt text to send to the model.
+        model: Name of the local Ollama model (e.g. 'qwen2.5-coder:7b').
+        host: URL where Ollama is listening.
+        timeout: Maximum time in seconds to wait for model completion.
+
+    Returns:
+        The generated text string from the model.
+
+    Raises:
+        RuntimeError: If the model is not pulled, Ollama is down, or generation fails.
+    """
+    url = f"{host.rstrip('/')}/api/generate"
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "temperature": 0.2,
+        },
+    }
+    body_bytes = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body_bytes,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("response", "")
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode("utf-8", errors="replace")
+        if exc.code == 404 or "not found" in err_body.lower():
+            raise RuntimeError(
+                f"Model '{model}' is not pulled in Ollama. Run: ollama pull {model}"
+            ) from exc
+        raise RuntimeError(
+            f"Ollama request failed with HTTP error {exc.code}: {err_body}"
+        ) from exc
+    except (urllib.error.URLError, http.client.HTTPException, OSError) as exc:
+        raise RuntimeError(
+            f"Ollama is not running at {host}. Start Ollama, then try again."
+        ) from exc
+
+
+def extract_cpp(text: str) -> str:
+    """Extracts C++ source code from text, stripping markdown code fences.
+
+    This function searches for the first ```cpp, ```c++, or plain ``` code block.
+    If no code block fence is present, it returns the whole text. Surrounding
+    whitespace is always stripped.
+
+    Args:
+        text: The raw output text received from the model.
+
+    Returns:
+        The clean C++ code string.
+    """
+    # Find the first fenced block matching ```cpp, ```c++, or ```
+    pattern = r"```(?:cpp|c\+\+)?\s*\n?(.*?)```"
+    match = re.search(pattern, text, flags=re.DOTALL | re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return text.strip()

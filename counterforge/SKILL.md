@@ -31,27 +31,54 @@ Every test generator used with CounterForge must adhere to the following contrac
 
 ## Usage
 
-Run the deterministic stress engine from the command line:
+### 1. Manual Mode
+Run stress testing with user-provided brute-force and generator C++ files:
 
 ```bash
 python counterforge/scripts/stress.py --solution path/to/solution.cpp --brute path/to/brute.cpp --gen path/to/gen.cpp
 ```
 
+### 2. AI Mode (Local LLM via Ollama)
+When only the problem description is available, let a local Ollama model synthesize the brute-force solution and generator automatically:
+
+```bash
+python counterforge/scripts/stress.py --solution path/to/solution.cpp --problem path/to/problem.txt --model qwen2.5-coder:7b
+```
+*(Or set `COUNTERFORGE_MODEL=qwen2.5-coder:7b` in your environment).*
+
+## CLI Flags
+
+| Flag | Short | Description | Default |
+| :--- | :--- | :--- | :--- |
+| `--solution` | `-s` | Path to candidate C++ solution (`.cpp`) **[Required]** | |
+| `--problem` | `-p` | Path to problem statement text file (`.txt`) for AI mode | `None` |
+| `--model` | `-m` | Local Ollama model name for AI mode | `$COUNTERFORGE_MODEL` |
+| `--brute` | `-b` | Path to trusted brute-force reference (`.cpp`) | `None` |
+| `--gen` | `-g` | Path to C++ test generator (`.cpp`) | `None` |
+| `--max-tests` | `-n` | Maximum test cases to evaluate | `100` |
+| `--max-size` | | Maximum scale/size parameter for generator | `20` |
+| `--seed` | | Starting random seed | `1` |
+| `--time-limit` | `-t` | Time limit per test case in seconds | `1.5` |
+| `--mode` | | Generator mode (`small`, `large`, `all`, `both`) | `all` |
+| `--build-dir` | | Directory for compiled binaries | `build` |
+| `--output-dir` | | Directory to save counterexample evidence | `stress_runs/<timestamp>/` |
+
 ## Architecture & Roadmap
 
-- **Phase 1 (Current)**:
+- **Phase 1 (Completed)**:
   - Deterministic C++ stress engine (`engine.py`)
   - Pretty terminal reporting with Rich (`report.py`)
   - Command-line runner (`stress.py`)
   - Example problem with deliberate bug (`examples/max-subarray-bug/`)
   - Test suite with pytest (`tests/test_engine.py`)
 
-- **Phase 2 (TODO)**:
-  - Local LLM integration (`llm.py`) to synthesize brute-force solutions and generators when not provided.
-  - Local LLM trust and soundness verification (`trust_check.py`).
+- **Phase 2 (Completed)**:
+  - Zero-dependency local Ollama LLM client (`llm.py`) using Python standard library `urllib`.
+  - AI helper synthesis and generator sanity check (`ai_helpers.py`).
+  - Starter templates (`assets/templates/`) and prompts (`assets/prompts/`).
+  - Timestamped reproducible evidence runs (`stress_runs/<timestamp>/`).
+  - Distinct stress loop outcomes (`wrong_answer`, `runtime_error`, `timeout`, `brute_failed`, `no_difference_found`).
 
-- **Phase 3 (TODO)**:
+- **Phase 3 (Next)**:
+  - Trust check with sample verification and LLM retries.
   - Delta-debugging / binary counterexample shrinker.
-
-- **Phase 4 (TODO)**:
-  - Automated code repair loop proposing diffs to fix identified bugs.

@@ -7,6 +7,7 @@ reproducible evidence (failing input, expected output, actual output) to disk.
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Union
@@ -74,6 +75,8 @@ def print_test_progress(test_case: StressTestCase) -> None:
         console.print(f"  [bold]Test #{test_case.test_number:03d}[/bold] ({meta}) [bold magenta]RUNTIME ERROR[/bold magenta]")
     elif test_case.status == "timeout":
         console.print(f"  [bold]Test #{test_case.test_number:03d}[/bold] ({meta}) [bold yellow]TIME LIMIT EXCEEDED[/bold yellow]")
+    elif test_case.status == "brute_failed":
+        console.print(f"  [bold]Test #{test_case.test_number:03d}[/bold] ({meta}) [bold red]BRUTE FORCE FAILED[/bold red]")
     else:
         console.print(f"  [bold]Test #{test_case.test_number:03d}[/bold] ({meta}) [bold red]{test_case.status.upper()}[/bold red]")
 
@@ -116,17 +119,33 @@ def print_bug_report(test_case: StressTestCase) -> None:
     console.print(panel)
 
 
-def save_evidence(test_case: StressTestCase, output_dir: Union[str, Path]) -> Path:
-    """Saves the failing test case and comparison outputs to files for debugging.
+def save_evidence(
+    test_case: StressTestCase,
+    output_dir: Optional[Union[str, Path]] = None,
+    solution_src: Optional[Union[str, Path]] = None,
+    brute_src: Optional[Union[str, Path]] = None,
+    gen_src: Optional[Union[str, Path]] = None,
+) -> Path:
+    """Saves the failing test case, comparison outputs, and source files to disk.
 
     Args:
         test_case: The failing test case data.
-        output_dir: Folder path where files will be stored.
+        output_dir: Folder path where files will be stored. If None, defaults
+            to 'stress_runs/<timestamp>/'.
+        solution_src: Optional path to solution C++ file to copy.
+        brute_src: Optional path to brute-force C++ file to copy.
+        gen_src: Optional path to generator C++ file to copy.
 
     Returns:
         The Path to the directory where evidence files were written.
     """
-    out = Path(output_dir).resolve()
+    if output_dir is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out = Path("stress_runs") / timestamp
+    else:
+        out = Path(output_dir)
+
+    out = out.resolve()
     out.mkdir(parents=True, exist_ok=True)
 
     input_file = out / "failing_input.in"
@@ -138,6 +157,28 @@ def save_evidence(test_case: StressTestCase, output_dir: Union[str, Path]) -> Pa
     expected_file.write_text(test_case.expected_output, encoding="utf-8")
     actual_file.write_text(test_case.actual_output, encoding="utf-8")
 
+    files_dict = {
+        "failing_input": str(input_file),
+        "expected_output": str(expected_file),
+        "actual_output": str(actual_file),
+    }
+
+    # Copy solution.cpp, brute.cpp, and gen.cpp into the evidence folder
+    if solution_src and Path(solution_src).exists():
+        sol_dest = out / "solution.cpp"
+        shutil.copy2(solution_src, sol_dest)
+        files_dict["solution"] = str(sol_dest)
+
+    if brute_src and Path(brute_src).exists():
+        brute_dest = out / "brute.cpp"
+        shutil.copy2(brute_src, brute_dest)
+        files_dict["brute"] = str(brute_dest)
+
+    if gen_src and Path(gen_src).exists():
+        gen_dest = out / "gen.cpp"
+        shutil.copy2(gen_src, gen_dest)
+        files_dict["gen"] = str(gen_dest)
+
     report_data = {
         "tool": "CounterForge",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -148,14 +189,11 @@ def save_evidence(test_case: StressTestCase, output_dir: Union[str, Path]) -> Pa
         "status": test_case.status,
         "error_message": test_case.error_message,
         "duration_seconds": test_case.duration,
-        "files": {
-            "failing_input": str(input_file),
-            "expected_output": str(expected_file),
-            "actual_output": str(actual_file),
-        },
+        "files": files_dict,
     }
     report_file.write_text(json.dumps(report_data, indent=2), encoding="utf-8")
 
+    console.print(f"[bold green]Saved evidence to:[/bold green] [cyan]{out}[/cyan]")
     return out
 
 

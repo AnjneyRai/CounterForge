@@ -83,12 +83,20 @@ class StressOutcome:
         total_tested: Total number of test cases evaluated.
         failing_case: The first failing test case encountered, or None if all passed.
         build_error: Error message if C++ compilation failed, or None.
+        outcome: One of "no_difference_found", "wrong_answer", "runtime_error",
+                 "timeout", "brute_failed", "generator_failed", or "build_error".
     """
 
     success: bool
     total_tested: int
     failing_case: Optional[StressTestCase] = None
     build_error: Optional[str] = None
+    outcome: str = "no_difference_found"
+
+    @property
+    def status(self) -> str:
+        """Alias for outcome for compatibility."""
+        return self.outcome
 
 
 def get_executable_path(base_path: Union[str, Path]) -> Path:
@@ -376,11 +384,12 @@ def run_stress_test(
                 success=False,
                 total_tested=0,
                 build_error=f"Failed to compile {name} ({src}):\n{error}",
+                outcome="build_error",
             )
 
     # Step 2: Determine mode sequence
     # Searching small sizes first guarantees the counterexample found is minimal
-    modes_to_test = ["small", "large"] if mode == "all" else [mode]
+    modes_to_test = ["small", "large"] if mode in ("all", "both") else [mode]
 
     total_tested = 0
     current_seed = start_seed
@@ -406,7 +415,7 @@ def run_stress_test(
                     size=size,
                     mode=m,
                     input_text="",
-                    status="generator_error",
+                    status="generator_failed",
                     error_message=f"Generator failed: {gen_res.stderr}",
                 )
                 if on_test_done:
@@ -415,6 +424,7 @@ def run_stress_test(
                     success=False,
                     total_tested=total_tested,
                     failing_case=failing_case,
+                    outcome="generator_failed",
                 )
 
             input_text = gen_res.stdout
@@ -428,7 +438,7 @@ def run_stress_test(
                     size=size,
                     mode=m,
                     input_text=input_text,
-                    status="brute_error",
+                    status="brute_failed",
                     error_message=f"Trusted brute-force crashed/timed out: {brute_res.stderr}",
                 )
                 if on_test_done:
@@ -437,6 +447,7 @@ def run_stress_test(
                     success=False,
                     total_tested=total_tested,
                     failing_case=failing_case,
+                    outcome="brute_failed",
                 )
 
             expected_output = brute_res.stdout
@@ -478,6 +489,7 @@ def run_stress_test(
                         success=False,
                         total_tested=total_tested,
                         failing_case=test_case,
+                        outcome=test_case.status,
                     )
 
             current_seed += 1
@@ -490,4 +502,5 @@ def run_stress_test(
         success=True,
         total_tested=total_tested,
         failing_case=None,
+        outcome="no_difference_found",
     )

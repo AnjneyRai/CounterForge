@@ -1,0 +1,23 @@
+You are an expert competitive programmer.
+Write a C++17 test GENERATOR following the contract exactly.
+
+PROBLEM STATEMENT:
+{problem}
+
+GENERATOR CONTRACT:
+{contract}
+
+INSTRUCTIONS:
+1. Write a C++17 test GENERATOR that follows the contract exactly:
+   - Invocation: ./gen <seed> <size> <mode>
+   - argv[1]: seed (convert to unsigned int and seed std::mt19937)
+   - argv[2]: size (the maximum count of elements or main problem dimension)
+   - argv[3]: mode ("small" = small values/dimensions for manual inspection, "large" = values near boundary limits)
+2. Use std::mt19937 seeded with the provided seed for deterministic random generation.
+3. Respect every constraint in the problem statement.
+4. Print ONLY one valid input to standard output (stdout).
+5. Provide NO explanation, commentary, or text outside the code.
+6. Reply with ONE ```cpp code block only.
+
+STARTER TEMPLATE:
+{template}
